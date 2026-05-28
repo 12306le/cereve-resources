@@ -1,14 +1,12 @@
 # cereve-resources
 
-Public build pipeline and GitHub Releases distribution for [Cereve](https://github.com/12306le/cereve)'s pre-compiled `ceserver` binaries (Cheat Engine, Android).
+Public build pipeline and GitHub Releases distribution for pre-compiled `ceserver` binaries (Cheat Engine, Android).
 
-This repo is intentionally **public and auditable**: the build script and workflow that produce the binaries Cereve installs on user devices live here, so any user can:
+This repo is intentionally **public and auditable**: the build script and workflow that produce the binaries live here, so any user can:
 
 1. Read [`scripts/ceserver/build.sh`](scripts/ceserver/build.sh) to see exactly how each `ceserver` is compiled.
 2. Re-run the build themselves on a clean ubuntu runner and compare the resulting `sha256` against the [Releases](https://github.com/12306le/cereve-resources/releases) page.
-3. Verify the immutable URL pattern matches what their Cereve install actually downloads.
-
-The Cereve desktop client itself (Tauri / Vue / Rust source) remains in a separate private repo. Nothing in this repo can read or affect the client's authorization logic.
+3. Verify the immutable URL pattern matches what gets actually downloaded.
 
 ## What lives here
 
@@ -32,20 +30,13 @@ The workflow then builds all three Android ABIs (arm64-v8a, armeabi-v7a, x86_64)
 
 For details, see [`scripts/ceserver/README.md`](scripts/ceserver/README.md).
 
-## Cereve client download URL pattern
+## Download URL pattern
 
 ```
 https://github.com/12306le/cereve-resources/releases/download/ceserver-<ce_ref>-<build_num>/ceserver-<abi>
 ```
 
 ABI values: `arm64-v8a`, `armeabi-v7a`, `x86_64`. Each binary has matching `<file>.sha256` and `manifest-<abi>.json` sidecar files alongside it under the same release tag.
-
-## What does NOT live here
-
-- Cereve desktop client source code (private repo).
-- Authorization / license / payment logic.
-- ADB executor / managed runtime (private repo).
-- User data of any kind.
 
 ## Upstream
 
