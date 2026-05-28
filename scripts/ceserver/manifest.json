@@ -1,0 +1,16 @@
+{
+  "ce_versions": ["7.5"],
+  "abis": ["arm64-v8a", "armeabi-v7a", "x86_64"],
+  "ndk": "r25c",
+  "deferred": [
+    "6.7 (uses pre-ndk-build layout: Release-android/makefile + arm-linux-androideabi-gcc toolchain, deprecated in NDK r17+ and removed in r24+; verified 2026-05-28)",
+    "7.0 (still pre-ndk-build; introduces AndroidStudio dir but no ndk-build target)",
+    "7.6 (upstream not tagged yet, 2026-05)"
+  ],
+  "notes": [
+    "Upstream APP_ABI default is 'x86 armeabi-v7a arm64-v8a'; build.sh rewrites it per-run.",
+    "x86_64 builds require build.sh's per-run APP_ABI override since upstream omits it.",
+    "ndk-build/EXECUTABLE/jni layout was introduced in CE 7.1 (Feb 2020); 7.1..7.5 share it.",
+    "build.sh must invoke ndk-build with RELATIVE paths because 'Cheat Engine' contains a space that breaks make's whitespace-based variable splitting."
+  ]
+}

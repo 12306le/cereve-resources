@@ -1,0 +1,169 @@
+name: Build & Publish ceserver
+
+on:
+  push:
+    tags:
+      - 'ceserver-*-*'
+  workflow_dispatch:
+    inputs:
+      ce_ref:
+        description: 'Cheat Engine git ref (tag or commit)'
+        required: true
+        default: '7.5'
+        type: string
+      build_num:
+        description: 'Build number for manifest only (no release published on dispatch)'
+        required: true
+        default: '0'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  parse:
+    runs-on: ubuntu-latest
+    outputs:
+      ce_ref: ${{ steps.vars.outputs.ce_ref }}
+      build_num: ${{ steps.vars.outputs.build_num }}
+      tag: ${{ steps.vars.outputs.tag }}
+    steps:
+      - id: vars
+        run: |
+          set -eu
+          if [ "${{ github.event_name }}" = "push" ]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+            REST="${TAG#ceserver-}"
+            CE_REF="${REST%-*}"
+            BUILD_NUM="${REST##*-}"
+          else
+            CE_REF="${{ inputs.ce_ref }}"
+            BUILD_NUM="${{ inputs.build_num }}"
+            TAG="ceserver-${CE_REF}-${BUILD_NUM}"
+          fi
+          echo "ce_ref=$CE_REF" >> "$GITHUB_OUTPUT"
+          echo "build_num=$BUILD_NUM" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Parsed: ce_ref=$CE_REF build_num=$BUILD_NUM tag=$TAG"
+
+  build:
+    needs: parse
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: [arm64-v8a, armeabi-v7a, x86_64]
+    name: ceserver ${{ needs.parse.outputs.ce_ref }} / ${{ matrix.abi }}
+    steps:
+      - name: Checkout cereve-resources
+        uses: actions/checkout@v4
+
+      - name: Clone Cheat Engine at ${{ needs.parse.outputs.ce_ref }}
+        run: |
+          git clone --depth 1 --branch "${{ needs.parse.outputs.ce_ref }}" \
+            https://github.com/cheat-engine/cheat-engine.git \
+            "${{ runner.temp }}/ce"
+
+      - name: Set up NDK r25c
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r25c
+          add-to-path: true
+
+      - name: Build ceserver
+        env:
+          CE_DIR: ${{ runner.temp }}/ce
+          ABI: ${{ matrix.abi }}
+          OUT_DIR: ${{ runner.temp }}/out
+          CE_REF: ${{ needs.parse.outputs.ce_ref }}
+          BUILD_NUM: ${{ needs.parse.outputs.build_num }}
+          SOURCE_COMMIT: ${{ github.sha }}
+          NDK_VERSION: r25c
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          chmod +x scripts/ceserver/build.sh
+          scripts/ceserver/build.sh
+
+      - name: Rename assets per ABI
+        env:
+          OUT: ${{ runner.temp }}/out
+          ABI: ${{ matrix.abi }}
+        run: |
+          set -eu
+          cd "$OUT"
+          mv ceserver "ceserver-$ABI"
+          SHA="$(awk '{print $1}' ceserver.sha256)"
+          printf "%s  ceserver-%s\n" "$SHA" "$ABI" > "ceserver-$ABI.sha256"
+          rm -f ceserver.sha256
+          mv manifest.json "manifest-$ABI.json"
+          ls -la
+
+      - name: Inspect output
+        env:
+          OUT: ${{ runner.temp }}/out
+          ABI: ${{ matrix.abi }}
+        run: |
+          file "$OUT/ceserver-$ABI"
+          cat "$OUT/manifest-$ABI.json"
+          cat "$OUT/ceserver-$ABI.sha256"
+
+      - name: Upload matrix artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ceserver-${{ matrix.abi }}
+          path: ${{ runner.temp }}/out
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    needs: [parse, build]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Layout release assets
+        run: |
+          set -eu
+          mkdir -p release
+          cp artifacts/ceserver-arm64-v8a/* release/
+          cp artifacts/ceserver-armeabi-v7a/* release/
+          cp artifacts/ceserver-x86_64/* release/
+          ls -la release/
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.parse.outputs.tag }}
+          name: "ceserver ${{ needs.parse.outputs.ce_ref }} build ${{ needs.parse.outputs.build_num }}"
+          body: |
+            Pre-compiled `ceserver` binaries for Cheat Engine **${{ needs.parse.outputs.ce_ref }}** (Android).
+
+            - **Build number**: `${{ needs.parse.outputs.build_num }}`
+            - **NDK**: `r25c`
+            - **Source commit**: `${{ github.sha }}`
+
+            ## Assets
+
+            | File | ABI | Type |
+            |------|-----|------|
+            | `ceserver-arm64-v8a` | arm64-v8a | ELF 64-bit, ARM aarch64, PIE |
+            | `ceserver-armeabi-v7a` | armeabi-v7a | ELF 32-bit, ARM EABI5, PIE |
+            | `ceserver-x86_64` | x86_64 | ELF 64-bit, x86-64, PIE |
+
+            Each binary has matching `<file>.sha256` and `manifest-<abi>.json` sidecar files. Verify with `sha256sum -c <file>.sha256`.
+
+            ## Client URL pattern
+
+            ```
+            https://github.com/12306le/cereve-resources/releases/download/${{ needs.parse.outputs.tag }}/ceserver-<abi>
+            ```
+          files: release/*
+          fail_on_unmatched_files: true
